@@ -1,98 +1,143 @@
 <?php
 require_once 'Database.php';
-$pdo = Database::getInstance();
 
-// Ambil daftar jurusan
-$jurusan_stmt = $pdo->query("SELECT * FROM jurusan ORDER BY nama_jurusan");
-$jurusan_list = $jurusan_stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Ambil filter dari user
-$filter_jurusan = isset($_GET['jurusan']) ? $_GET['jurusan'] : '';
-$order = isset($_GET['order']) ? $_GET['order'] : 'nama_asc';
-
-// Mapping urutan
-$order_map = [
-    'nama_asc' => 'm.nama ASC',
-    'nama_desc' => 'm.nama DESC',
-    'nim_asc' => 'm.nim ASC',
-    'nim_desc' => 'm.nim DESC'
-];
-$order_sql = $order_map[$order] ?? 'm.nama ASC';
-
-// Query join
-$sql = "SELECT m.nim, m.nama, j.nama_jurusan
-        FROM mahasiswa m
-        JOIN jurusan j ON m.jurusan = j.id";
-if (!empty($filter_jurusan)) {
-    $sql .= " WHERE j.id = :jurusan";
+try {
+    $db = Database::getInstance();
+    
+    // Ambil data jurusan untuk dropdown
+    $stmtJurusan = $db->query("SELECT * FROM jurusan ORDER BY nama_jurusan");
+    $daftarJurusan = $stmtJurusan->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Handle filter dan sorting
+    $jurusanFilter = $_GET['jurusan'] ?? '';
+    $sortBy = $_GET['sort_by'] ?? 'nama';
+    $sortOrder = $_GET['sort_order'] ?? 'ASC';
+    
+    // Validasi input
+    $allowedColumns = ['nim', 'nama', 'nama_jurusan'];
+    $allowedOrders = ['ASC', 'DESC'];
+    
+    if (!in_array($sortBy, $allowedColumns)) $sortBy = 'nama';
+    if (!in_array($sortOrder, $allowedOrders)) $sortOrder = 'ASC';
+    
+    // Query dasar
+    $sql = "SELECT m.nim, m.nama, j.nama_jurusan 
+            FROM mahasiswa m 
+            LEFT JOIN jurusan j ON m.jurusan = j.id";
+    
+    $params = [];
+    
+    // Filter jurusan
+    if (!empty($jurusanFilter) && is_numeric($jurusanFilter)) {
+        $sql .= " WHERE m.jurusan = :jurusan";
+        $params[':jurusan'] = $jurusanFilter;
+    }
+    
+    // Sorting
+    $sql .= " ORDER BY $sortBy $sortOrder";
+    
+    // Eksekusi query
+    $stmt = $db->prepare($sql);
+    if (!empty($params)) {
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value, PDO::PARAM_INT);
+        }
+    }
+    $stmt->execute();
+    $dataMahasiswa = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+} catch(PDOException $e) {
+    $error = "Error: " . $e->getMessage();
+    $dataMahasiswa = [];
 }
-$sql .= " ORDER BY $order_sql";
-
-$stmt = $pdo->prepare($sql);
-if (!empty($filter_jurusan)) {
-    $stmt->bindParam(':jurusan', $filter_jurusan, PDO::PARAM_INT);
-}
-$stmt->execute();
-$mahasiswa = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
-<meta charset="UTF-8">
-<title>Data Mahasiswa</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Mahasiswa</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .filter-form { background: #e9ecef; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        .form-group { margin-bottom: 10px; }
+        label { display: inline-block; width: 150px; font-weight: bold; }
+        select, button { padding: 8px 12px; margin-right: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #343a40; color: white; }
+        .no-data { text-align: center; padding: 40px; color: #6c757d; font-size: 18px; }
+        .btn { background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .btn:hover { background: #0056b3; }
+    </style>
 </head>
-<body class="p-4">
-<div class="container">
-    <h2 class="mb-4">Data Mahasiswa</h2>
-    <form class="row mb-3">
-        <div class="col-md-4">
-            <label class="form-label">Filter Jurusan:</label>
-            <select name="jurusan" class="form-select">
-                <option value="">Semua Jurusan</option>
-                <?php foreach ($jurusan_list as $j): ?>
-                    <option value="<?= $j['id']; ?>" <?= ($filter_jurusan == $j['id']) ? 'selected' : ''; ?>>
-                        <?= htmlspecialchars($j['nama_jurusan']); ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
+<body>
+    <div class="container">
+        <h1>Data Mahasiswa</h1>
+        
+        <!-- Form Filter -->
+        <div class="filter-form">
+            <form method="GET" action="">
+                <div class="form-group">
+                    <label for="jurusan">Filter Jurusan:</label>
+                    <select name="jurusan" id="jurusan">
+                        <option value="">-- Semua Jurusan --</option>
+                        <?php foreach ($daftarJurusan as $jurusan): ?>
+                            <option value="<?= $jurusan['id'] ?>" <?= ($jurusanFilter == $jurusan['id']) ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($jurusan['nama_jurusan']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="sort_by">Urutkan By:</label>
+                    <select name="sort_by" id="sort_by">
+                        <option value="nama" <?= ($sortBy == 'nama') ? 'selected' : '' ?>>Nama</option>
+                        <option value="nim" <?= ($sortBy == 'nim') ? 'selected' : '' ?>>NIM</option>
+                        <option value="nama_jurusan" <?= ($sortBy == 'nama_jurusan') ? 'selected' : '' ?>>Jurusan</option>
+                    </select>
+                    
+                    <select name="sort_order" id="sort_order">
+                        <option value="ASC" <?= ($sortOrder == 'ASC') ? 'selected' : '' ?>>ASC</option>
+                        <option value="DESC" <?= ($sortOrder == 'DESC') ? 'selected' : '' ?>>DESC</option>
+                    </select>
+                </div>
+                
+                <button type="submit" class="btn">Terapkan Filter</button>
+                <button type="button" class="btn" onclick="window.location.href='tampil_mahasiswa_join.php'">Reset</button>
+            </form>
         </div>
-        <div class="col-md-4">
-            <label class="form-label">Urutkan By:</label>
-            <select name="order" class="form-select">
-                <option value="nama_asc" <?= ($order == 'nama_asc') ? 'selected' : ''; ?>>Nama (A-Z)</option>
-                <option value="nama_desc" <?= ($order == 'nama_desc') ? 'selected' : ''; ?>>Nama (Z-A)</option>
-                <option value="nim_asc" <?= ($order == 'nim_asc') ? 'selected' : ''; ?>>NIM (A-Z)</option>
-                <option value="nim_desc" <?= ($order == 'nim_desc') ? 'selected' : ''; ?>>NIM (Z-A)</option>
-            </select>
-        </div>
-        <div class="col-md-4 d-flex align-items-end">
-            <button type="submit" class="btn btn-primary">Tampilkan</button>
-        </div>
-    </form>
 
-    <table class="table table-bordered">
-        <thead class="table-light">
-            <tr>
-                <th>NIM</th>
-                <th>Nama</th>
-                <th>Jurusan</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php if ($mahasiswa): ?>
-                <?php foreach ($mahasiswa as $mhs): ?>
+        <!-- Tabel Data -->
+        <?php if (isset($error)): ?>
+            <div style="color: red; padding: 10px; background: #f8d7da;"><?= $error ?></div>
+        <?php elseif (empty($dataMahasiswa)): ?>
+            <div class="no-data">
+                <h3>Tidak ada data mahasiswa yang ditemukan</h3>
+            </div>
+        <?php else: ?>
+            <table>
+                <thead>
                     <tr>
-                        <td><?= htmlspecialchars($mhs['nim']); ?></td>
-                        <td><?= htmlspecialchars($mhs['nama']); ?></td>
-                        <td><?= htmlspecialchars($mhs['nama_jurusan']); ?></td>
+                        <th>NIM</th>
+                        <th>Nama</th>
+                        <th>Jurusan</th>
                     </tr>
-                <?php endforeach; ?>
-            <?php else: ?>
-                <tr><td colspan="3">Tidak ada data mahasiswa.</td></tr>
-            <?php endif; ?>
-        </tbody>
-    </table>
-</div>
+                </thead>
+                <tbody>
+                    <?php foreach ($dataMahasiswa as $mhs): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($mhs['nim']) ?></td>
+                            <td><?= htmlspecialchars($mhs['nama']) ?></td>
+                            <td><?= htmlspecialchars($mhs['nama_jurusan']) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <p>Total: <?= count($dataMahasiswa) ?> mahasiswa</p>
+        <?php endif; ?>
+    </div>
 </body>
 </html>
